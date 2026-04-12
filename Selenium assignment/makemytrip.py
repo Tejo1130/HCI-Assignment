@@ -1,6 +1,8 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import time
 
 driver = webdriver.Chrome()
@@ -24,7 +26,11 @@ driver.get("https://www.makemytrip.com/")
 time.sleep(5)
 
 # Close popup
-driver.find_element(By.TAG_NAME, "body").click()
+wait = WebDriverWait(driver, 15)
+
+# Wait for page to load and click somewhere safe
+wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+driver.execute_script("document.body.click();")
 
 # FROM
 click(driver.find_element(By.ID, "fromCity"))
