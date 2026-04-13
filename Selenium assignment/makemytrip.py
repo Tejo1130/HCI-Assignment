@@ -1,19 +1,3 @@
-"""
-MakeMyTrip - Selenium Flight Booking Automation
-BITS F364 HCI - Programming Assignment (Part A)
-
-Task:
-  - From: Hyderabad (HYD)
-  - To: Delhi (DEL)
-  - Date: 15 June 2026
-  - Passengers: 1 Adult, Economy
-  - Sort by price (lowest), select first result, stop before payment
-
-Measurement:
-  - Steps counted as discrete user interactions (click, type, select)
-  - Time measured from homepage ready → review/itinerary page loaded
-"""
-
 import time
 import logging
 from selenium import webdriver
@@ -99,13 +83,11 @@ def run():
     options = Options()
     options.add_argument("--start-maximized")
     options.add_argument("--disable-notifications")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
     # Uncomment the next line to run headless (pop-up handling may differ):
     # options.add_argument("--headless=new")
 
     driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 10)
 
     try:
         # ── 1. Open homepage ──────────────────────────────────────────────────
@@ -116,7 +98,7 @@ def run():
         time.sleep(2)  # allow JS to settle
 
         # Dismiss any immediate login modal
-        dismiss_popup(driver, wait)
+        dismiss_popup(driver, WebDriverWait(driver, 5))
 
         # ── 2. Ensure "Flights" tab is active ────────────────────────────────
         try:
@@ -131,39 +113,60 @@ def run():
             step("Flights tab already active (no click needed)")
 
         # ── 3. Select One-Way ────────────────────────────────────────────────
-        wait_and_click(
-            driver, wait,
-            (By.XPATH, "//label[@for='trip_type_ONE_WAY' or contains(.,'One Way')]"),
-            "One Way radio button",
-        )
+        try:
+            one_way = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//li[@data-cy='oneWay'] | //input[@id='trip_type_ONE_WAY']")
+                )
+            )
+            try:
+                one_way.click()
+                step("Clicked One Way")
+            except:
+                driver.execute_script("arguments[0].click();", one_way)
+                step("Clicked One Way (JS)")
+        except TimeoutException:
+            step("One Way already selected / not required")
 
         # ── 4. Set Departure city ────────────────────────────────────────────
-        from_field = wait.until(
-            EC.element_to_be_clickable((By.ID, "fromCity"))
-        )
+        from_field = wait.until(EC.element_to_be_clickable((By.ID, "fromCity")))
         from_field.click()
         step("Clicked From field")
-        from_field.clear()
-        from_field.send_keys("Hyderabad")
-        time.sleep(1)
+
+        time.sleep(2)  # IMPORTANT: wait for input to appear
+
+        # NOW target actual input box (NOT fromCity)
+        from_input = wait.until( EC.presence_of_element_located((By.XPATH, "//input[@placeholder='From'] | //input[@type='text']")))
+
+        from_input.send_keys("Hyderabad")
+        step("Typed Hyderabad")
+
+        # Select dropdown
         wait_and_click(
             driver, wait,
-            (By.XPATH, "//li[contains(@class,'react-autosuggest') and contains(.,'HYD') and contains(.,'Hyderabad')]"),
+            (By.XPATH, "//li[contains(.,'Hyderabad') and contains(.,'HYD')]"),
             "Hyderabad suggestion",
         )
 
-        # ── 5. Set Destination city ──────────────────────────────────────────
+       # ── 5. Set Destination city ──────────────────────────────────────────
         to_field = wait.until(
             EC.element_to_be_clickable((By.ID, "toCity"))
         )
         to_field.click()
         step("Clicked To field")
-        to_field.clear()
-        to_field.send_keys("Delhi")
-        time.sleep(1)
+
+        time.sleep(2)
+
+        to_input = wait.until(
+            EC.presence_of_element_located((By.XPATH, "//input[@placeholder='To'] | //input[@type='text']"))
+        )
+
+        to_input.send_keys("Delhi")
+        step("Typed Delhi")
+
         wait_and_click(
             driver, wait,
-            (By.XPATH, "//li[contains(@class,'react-autosuggest') and (contains(.,'DEL') or contains(.,'Indira Gandhi'))]"),
+            (By.XPATH, "//li[contains(.,'Delhi') and contains(.,'DEL')]"),
             "Delhi suggestion",
         )
 

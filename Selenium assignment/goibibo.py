@@ -1,174 +1,343 @@
 import time
+import logging
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    ElementClickInterceptedException,
+)
 
-opts = Options()
-opts.add_argument("--start-maximized")
-opts.add_argument("--disable-notifications")
-opts.add_argument("--disable-blink-features=AutomationControlled")
-opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-opts.add_experimental_option("useAutomationExtension", False)
-opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+# ── Logging setup ────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("GOIBIBO")
 
-driver = webdriver.Chrome(options=opts)
+# ── Measurement counters ──────────────────────────────────────────────────────
+step_count = 0
+interruptions = []
 
-driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-})
-wait = WebDriverWait(driver, 10)
 
-steps = 0
-start_time = None
+def step(label: str):
+    global step_count
+    step_count += 1
+    log.info(f"[STEP {step_count}] {label}")
 
-def click(xpath, label):
-    global steps
-    el = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+
+def note_interruption(desc: str):
+    interruptions.append(desc)
+    log.warning(f"[INTERRUPTION] {desc}")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def wait_and_click(driver, wait, locator, label="element", timeout=15):
+    elem = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable(locator))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", elem)
     try:
-        el.click()
-    except:
-        driver.execute_script("arguments[0].click();", el)
-    steps += 1
-    elapsed = round(time.time() - start_time, 1) if start_time else 0
-    print(f"  Step {steps:2d} | {elapsed:6.1f}s | {label}")
+        elem.click()
+    except ElementClickInterceptedException:
+        driver.execute_script("arguments[0].click();", elem)
+    step(f"Clicked: {label}")
+    return elem
 
-def dismiss_popups():
-    """Close any visible modal/overlay."""
-    close_xpaths = [
-        "//*[contains(@class,'close') and (self::button or self::span or self::div)]",
-        "//*[@aria-label='Close'] | //*[@aria-label='close']",
-        "//button[text()='×'] | //span[text()='×']",
-        "//button[contains(text(),'Skip')] | //button[contains(text(),'Later')]",
+
+def dismiss_popup(driver):
+    """
+    Goibibo shows various overlays (app download prompts, login nudges, etc.)
+    Try common close patterns. Not counted as a step.
+    """
+    selectors = [
+        (By.CSS_SELECTOR, "span.commonModal__close"),
+        (By.CSS_SELECTOR, "div[class*='closeBtn']"),
+        (By.CSS_SELECTOR, "button[class*='close']"),
+        (By.XPATH, "//button[@aria-label='Close' or @aria-label='close']"),
+        (By.XPATH, "//span[contains(@class,'close') and not(ancestor::*[contains(@style,'display:none')])]"),
     ]
-    for xp in close_xpaths:
+    for locator in selectors:
         try:
-            els = driver.find_elements(By.XPATH, xp)
-            for el in els:
-                if el.is_displayed():
-                    driver.execute_script("arguments[0].click();", el)
-                    global steps
-                    steps += 1
-                    print(f"  Step {steps:2d} |    --- | Closed pop-up")
-                    return True
-        except:
-            pass
+            btn = WebDriverWait(driver, 2).until(EC.element_to_be_clickable(locator))
+            btn.click()
+            note_interruption("Dismissed modal/popup overlay")
+            time.sleep(0.4)
+            return True
+        except (TimeoutException, NoSuchElementException):
+            continue
     return False
 
-print("\n── Goibibo Web Automation ──")
-driver.get("https://www.goibibo.com/")
-start_time = time.time()
 
-dismiss_popups()
+def type_in_field(driver, wait, locator, text, label):
+    """Click a field, clear it, and type text."""
+    field = wait.until(EC.element_to_be_clickable(locator))
+    field.click()
+    step(f"Clicked field: {label}")
+    field.clear()
+    field.send_keys(text)
+    time.sleep(1)
 
-try:
-    click("//a[contains(text(),'Flights')] | //span[text()='Flights']", "Click Flights tab")
-except TimeoutException:
-    print("  (Already on Flights)")
 
-try:
-    click(
-        "//li[@value='ONE'] | //label[contains(.,'One Way')] | //span[contains(text(),'One Way')]",
-        "Click One Way"
-    )
-except TimeoutException:
-    print("  (One Way already selected)")
+# ── Main automation ───────────────────────────────────────────────────────────
+def run():
+    global step_count, interruptions
+    step_count = 0
+    interruptions = []
 
-dismiss_popups()
-from_field = wait.until(EC.element_to_be_clickable((By.XPATH,
-    "//input[@id='gosuggest_input_src'] | //input[@placeholder='From']"
-)))
-from_field.clear()
-from_field.send_keys("Hyderabad")
-steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Type 'Hyderabad' in From")
+    options = Options()
+    options.add_argument("--start-maximized")
+    options.add_argument("--disable-notifications")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+    # options.add_argument("--headless=new")  # Uncomment for headless mode
 
-click("//li[contains(.,'Hyderabad')] | //li[contains(.,'HYD')]", "Select Hyderabad (HYD)")
+    driver = webdriver.Chrome(options=options)
+    wait = WebDriverWait(driver, 20)
 
-to_field = wait.until(EC.element_to_be_clickable((By.XPATH,
-    "//input[@id='gosuggest_input_dst'] | //input[@placeholder='To']"
-)))
-to_field.clear()
-to_field.send_keys("Delhi")
-steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Type 'Delhi' in To")
-
-click("//li[contains(.,'Delhi')] | //li[contains(.,'DEL')]", "Select Delhi (DEL)")
-
-click(
-    "//input[@id='depart_date'] | //div[contains(@class,'dept_date')]",
-    "Open departure date picker"
-)
-
-for _ in range(8):
     try:
-        driver.find_element(By.XPATH, "//*[contains(text(),'June') and contains(text(),'2026')]")
-        break
-    except NoSuchElementException:
-        click(
-            "//span[contains(@class,'next')] | //i[contains(@class,'icon-right')]",
-            "Next month"
+        # ── 1. Open Goibibo homepage ──────────────────────────────────────────
+        driver.get("https://www.goibibo.com/")
+        homepage_ready = time.time()
+        log.info("Homepage loaded. Timer started.")
+        time.sleep(2)
+        dismiss_popup(driver)
+
+        # ── 2. Click Flights in the top nav (if not already selected) ─────────
+        try:
+            flights_nav = wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH,
+                     "//a[contains(@href,'flights') and contains(normalize-space(.),'Flights')]"
+                     " | //li[contains(@class,'flights') or contains(normalize-space(.),'Flights')]")
+                )
+            )
+            flights_nav.click()
+            step("Clicked Flights in navigation")
+            time.sleep(1.5)
+        except TimeoutException:
+            step("Flights section already active")
+
+        # ── 3. Select One-Way trip ────────────────────────────────────────────
+        try:
+            one_way = wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH,
+                     "//label[contains(.,'One Way') or contains(.,'ONE WAY')]"
+                     " | //span[contains(text(),'One Way')]"
+                     " | //input[@value='ONE_WAY']/following-sibling::label")
+                )
+            )
+            one_way.click()
+            step("Selected One Way")
+        except TimeoutException:
+            note_interruption("Could not find explicit One-Way option; may be default")
+
+        # ── 4. From city: Hyderabad ───────────────────────────────────────────
+        from_locator = (
+            By.XPATH,
+            "//input[@placeholder='From' or @id='gosuggest_input_from' or contains(@class,'fromCity')]"
+            " | //div[contains(@class,'fromCity')]//input"
+        )
+        type_in_field(driver, wait, from_locator, "Hyderabad", "From city")
+
+        # Select Hyderabad from dropdown
+        wait_and_click(
+            driver, wait,
+            (By.XPATH,
+             "//ul[contains(@class,'ui-autocomplete')]//li[contains(.,'Hyderabad') and contains(.,'HYD')]"
+             " | //div[contains(@class,'suggest') and contains(.,'Hyderabad') and contains(.,'HYD')]"
+             " | //li[contains(@class,'airportSuggest') and contains(.,'HYD')]"),
+            "Hyderabad (HYD) suggestion",
         )
 
-click(
-    "//td[@data-date='2026-06-15'] | //div[@aria-label='June 15, 2026']",
-    "Select 15 June 2026"
-)
+        # ── 5. To city: Delhi ─────────────────────────────────────────────────
+        to_locator = (
+            By.XPATH,
+            "//input[@placeholder='To' or @id='gosuggest_input_to' or contains(@class,'toCity')]"
+            " | //div[contains(@class,'toCity')]//input"
+        )
+        # Sometimes Goibibo auto-focuses the To field after From selection
+        try:
+            to_field = WebDriverWait(driver, 4).until(EC.element_to_be_clickable(to_locator))
+        except TimeoutException:
+            to_field = driver.find_element(*to_locator)
 
-dismiss_popups()
-click(
-    "//button[contains(@class,'search')] | //button[contains(text(),'Search')]",
-    "Click Search"
-)
+        to_field.clear()
+        to_field.click()
+        step("Clicked To field")
+        to_field.send_keys("Delhi")
+        time.sleep(1)
 
-print("\n  Waiting for results...")
-try:
-    wait.until(EC.presence_of_element_located((By.XPATH,
-        "//div[contains(@class,'flightCard')] | //div[contains(@class,'resultItem')]"
-    )))
-    steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Results loaded")
-except TimeoutException:
-    print("  WARNING: Results page slow to load")
+        wait_and_click(
+            driver, wait,
+            (By.XPATH,
+             "//ul[contains(@class,'ui-autocomplete')]//li[contains(.,'Delhi') and (contains(.,'DEL') or contains(.,'Indira'))]"
+             " | //div[contains(@class,'suggest') and contains(.,'Delhi') and contains(.,'DEL')]"
+             " | //li[contains(@class,'airportSuggest') and contains(.,'DEL')]"),
+            "Delhi (DEL) suggestion",
+        )
 
-dismiss_popups()
+        # ── 6. Departure date: 15 June 2026 ───────────────────────────────────
+        date_locator = (
+            By.XPATH,
+            "//input[@placeholder='Departure' or contains(@class,'depart') or @id='departure_date']"
+            " | //div[contains(@class,'dept-date') or contains(@class,'departureDate')]"
+        )
+        wait_and_click(driver, wait, date_locator, "Departure date field")
 
-click(
-    "//span[contains(text(),'Price')] | //button[contains(text(),'Cheapest')] | //label[contains(.,'Price')]",
-    "Sort by Price"
-)
+        # Navigate calendar to June 2026
+        for _ in range(15):
+            try:
+                caption = driver.find_element(
+                    By.XPATH,
+                    "//div[contains(@class,'DayPicker-Caption') or contains(@class,'month-title') "
+                    "or contains(@class,'calendarMonth')]"
+                ).text
+                if "June 2026" in caption or "Jun 2026" in caption:
+                    break
+                next_month_btn = driver.find_element(
+                    By.XPATH,
+                    "//span[@aria-label='Next Month' or @aria-label='next month']"
+                    " | //button[contains(@class,'DayPicker-NavButton--next') or contains(@class,'next-month')]"
+                    " | //div[contains(@class,'nextMonth')]"
+                )
+                next_month_btn.click()
+                step("Calendar → next month")
+                time.sleep(0.4)
+            except NoSuchElementException:
+                break
 
-cards = wait.until(EC.presence_of_all_elements_located((By.XPATH,
-    "//div[contains(@class,'flightCard')] | //li[contains(@class,'resultItem')]"
-)))
-first_flight = cards[0]
-try:
-    fare = first_flight.find_element(By.XPATH, ".//*[contains(@class,'price')]").text
-except:
-    fare = "N/A"
+        # Click 15
+        wait_and_click(
+            driver, wait,
+            (By.XPATH,
+             "//div[@aria-label='Mon Jun 15 2026' or @aria-label='June 15, 2026']"
+             " | //td[@aria-label='June 15, 2026']"
+             " | //div[contains(@class,'DayPicker-Day') and not(contains(@class,'outside'))"
+             "         and not(contains(@class,'disabled')) and normalize-space(text())='15']"),
+            "June 15 on calendar",
+        )
+        time.sleep(1)
 
-driver.execute_script("arguments[0].click();", first_flight)
-steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Select cheapest flight (fare: {fare})")
+        # ── 7. Travellers / class – confirm if picker is open ─────────────────
+        try:
+            done_btn = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//button[contains(text(),'Done') or contains(text(),'Apply')]")
+                )
+            )
+            done_btn.click()
+            step("Confirmed traveller count (Done)")
+        except TimeoutException:
+            pass  # Default 1 adult economy is pre-set
 
-for label in ["Book Now", "Continue", "Continue"]:
-    try:
-        btn = WebDriverWait(driver, 6).until(EC.element_to_be_clickable((By.XPATH,
-            f"//button[contains(text(),'{label}')] | //a[contains(text(),'{label}')]"
-        )))
-        if any(kw in driver.current_url.lower() for kw in ["payment", "pay"]):
-            print(f"  ✓ Reached payment boundary — stopping")
-            break
-        driver.execute_script("arguments[0].click();", btn)
-        steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Click '{label}'")
-    except TimeoutException:
-        break
+        # ── 8. Search ─────────────────────────────────────────────────────────
+        wait_and_click(
+            driver, wait,
+            (By.XPATH,
+             "//button[contains(text(),'Search') or contains(text(),'SEARCH')]"
+             " | //a[contains(@class,'search-btn') and (contains(.,'Search') or contains(.,'SEARCH'))]"),
+            "Search button",
+        )
+        time.sleep(3)
+        dismiss_popup(driver)
+        log.info("Search results page loaded.")
 
-total_time = round(time.time() - start_time, 1)
-print(f"\n{'─'*45}")
-print(f"  Platform  : Goibibo (Web)")
-print(f"  Steps     : {steps}")
-print(f"  Time      : {total_time}s ({round(total_time/60,1)} min)")
-print(f"  Cheapest  : {fare}")
-print(f"{'─'*45}\n")
+        # ── 9. Sort by Price ──────────────────────────────────────────────────
+        try:
+            price_sort = wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH,
+                     "//li[contains(@class,'sort') and (contains(.,'Price') or contains(.,'Cheapest'))]"
+                     " | //div[contains(@class,'sortOption') and (contains(.,'Price') or contains(.,'Cheapest'))]"
+                     " | //span[text()='Price' or text()='Cheapest' or text()='Lowest Price']")
+                )
+            )
+            price_sort.click()
+            step("Sorted by Price / Cheapest")
+            time.sleep(2)
+        except TimeoutException:
+            note_interruption("Sort by Price button not found – results may already be sorted by price by default")
 
-input("Press Enter to close browser...")
-driver.quit()
+        # ── 10. Select first flight ───────────────────────────────────────────
+        first_result = wait.until(
+            EC.element_to_be_clickable(
+                (By.XPATH,
+                 "(//div[contains(@class,'flightCard') or contains(@class,'FlightCard') "
+                 "or contains(@class,'resultItem') or contains(@class,'flight-item')])[1]")
+            )
+        )
+        first_result.click()
+        step("Clicked first flight card")
+        time.sleep(2)
+        dismiss_popup(driver)
+
+        # ── 11. Book Now ──────────────────────────────────────────────────────
+        try:
+            book_btn = wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH,
+                     "//button[contains(text(),'Book Now') or contains(text(),'BOOK NOW') "
+                     "or contains(text(),'Select') or contains(text(),'SELECT')]")
+                )
+            )
+            book_btn.click()
+            step("Clicked Book Now / Select")
+            time.sleep(2)
+        except TimeoutException:
+            note_interruption("No Book Now button found after expanding flight card")
+
+        # ── 12. Handle login / sign-in redirect ──────────────────────────────
+        dismiss_popup(driver)
+
+        # ── 13. Continue through passenger / itinerary pages ─────────────────
+        for attempt in range(5):
+            current_url = driver.current_url
+            if "payment" in current_url.lower() or "pay" in current_url.lower():
+                log.info("Reached payment page – stopping as required.")
+                break
+            try:
+                cont = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH,
+                         "//button[contains(text(),'Continue') or contains(text(),'CONTINUE') "
+                         "or contains(text(),'Proceed') or contains(text(),'Next')]")
+                    )
+                )
+                cont.click()
+                step(f"Clicked Continue/Proceed (step {attempt + 1})")
+                time.sleep(2)
+                dismiss_popup(driver)
+            except TimeoutException:
+                log.info("No more Continue buttons – likely on review or payment page.")
+                break
+
+        # ── Stop timer ────────────────────────────────────────────────────────
+        end_time = time.time()
+        total_seconds = round(end_time - homepage_ready, 2)
+
+        # ── Report ─────────────────────────────────────────────────────────────
+        log.info("=" * 60)
+        log.info("GOIBIBO AUTOMATION COMPLETE")
+        log.info(f"  Final URL     : {driver.current_url}")
+        log.info(f"  Total Steps   : {step_count}")
+        log.info(f"  Total Time    : {total_seconds}s ({total_seconds/60:.1f} min)")
+        log.info(f"  Interruptions : {len(interruptions)}")
+        for i, msg in enumerate(interruptions, 1):
+            log.info(f"    {i}. {msg}")
+        log.info("=" * 60)
+
+        input("\n[PAUSED] Inspect the browser, then press Enter to close...")
+
+    except Exception as e:
+        log.error(f"Automation error: {e}", exc_info=True)
+    finally:
+        driver.quit()
+
+
+if __name__ == "__main__":
+    run()
