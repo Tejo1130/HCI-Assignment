@@ -34,7 +34,6 @@ def click(xpath, label):
     steps += 1
     elapsed = round(time.time() - start_time, 1) if start_time else 0
     print(f"  Step {steps:2d} | {elapsed:6.1f}s | {label}")
-    time.sleep(1)
 
 def dismiss_popups():
     """Close any visible modal/overlay."""
@@ -53,7 +52,6 @@ def dismiss_popups():
                     global steps
                     steps += 1
                     print(f"  Step {steps:2d} |    --- | Closed pop-up")
-                    time.sleep(1)
                     return True
         except:
             pass
@@ -62,7 +60,6 @@ def dismiss_popups():
 print("\n── Goibibo Web Automation ──")
 driver.get("https://www.goibibo.com/")
 start_time = time.time()
-time.sleep(3)
 
 dismiss_popups()
 
@@ -86,7 +83,6 @@ from_field = wait.until(EC.element_to_be_clickable((By.XPATH,
 from_field.clear()
 from_field.send_keys("Hyderabad")
 steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Type 'Hyderabad' in From")
-time.sleep(1.5)
 
 click("//li[contains(.,'Hyderabad')] | //li[contains(.,'HYD')]", "Select Hyderabad (HYD)")
 
@@ -96,7 +92,6 @@ to_field = wait.until(EC.element_to_be_clickable((By.XPATH,
 to_field.clear()
 to_field.send_keys("Delhi")
 steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Type 'Delhi' in To")
-time.sleep(1.5)
 
 click("//li[contains(.,'Delhi')] | //li[contains(.,'DEL')]", "Select Delhi (DEL)")
 
@@ -135,14 +130,12 @@ try:
 except TimeoutException:
     print("  WARNING: Results page slow to load")
 
-time.sleep(2)
 dismiss_popups()
 
 click(
     "//span[contains(text(),'Price')] | //button[contains(text(),'Cheapest')] | //label[contains(.,'Price')]",
     "Sort by Price"
 )
-time.sleep(2)
 
 cards = wait.until(EC.presence_of_all_elements_located((By.XPATH,
     "//div[contains(@class,'flightCard')] | //li[contains(@class,'resultItem')]"
@@ -155,7 +148,6 @@ except:
 
 driver.execute_script("arguments[0].click();", first_flight)
 steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Select cheapest flight (fare: {fare})")
-time.sleep(2)
 
 for label in ["Book Now", "Continue", "Continue"]:
     try:
@@ -167,7 +159,6 @@ for label in ["Book Now", "Continue", "Continue"]:
             break
         driver.execute_script("arguments[0].click();", btn)
         steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Click '{label}'")
-        time.sleep(2)
     except TimeoutException:
         break
 
