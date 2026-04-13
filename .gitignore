@@ -4,6 +4,7 @@ chromedriver.exe
 # Python cache
 __pycache__/
 *.pyc
+venv
 
 # OS junk
 .DS_Store
