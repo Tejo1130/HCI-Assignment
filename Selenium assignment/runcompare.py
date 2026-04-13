@@ -7,8 +7,8 @@ from datetime import datetime
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
-import makemytrip as mmt_module
-import goibibo    as gib_module
+import makemytrip_selenium as mmt_module
+import goibibo_selenium    as gib_module
 
 def run_all():
     print("\n" + "═" * 64)
