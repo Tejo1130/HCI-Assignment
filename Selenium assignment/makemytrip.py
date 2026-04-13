@@ -1,76 +1,166 @@
+import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-import time
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-options = Options()
-options.add_argument("--start-maximized")
-options.add_argument("--disable-notifications")
+# ── Setup ─────────────────────────────────────────────────────────────────────
+opts = Options()
+opts.add_argument("--start-maximized")
+opts.add_argument("--disable-notifications")
+opts.add_argument("--disable-blink-features=AutomationControlled")
+opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+opts.add_experimental_option("useAutomationExtension", False)
+opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
-service = Service("chromedriver.exe")
-driver = webdriver.Chrome(service=service, options=options)
-
-driver.maximize_window()
+driver = webdriver.Chrome(options=opts)
+# Hide webdriver property from JS detection
+driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+    "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+})
+wait = WebDriverWait(driver, 10)
 
 steps = 0
+start_time = None
 
-def click(el):
+def click(xpath, label):
     global steps
-    el.click()
+    el = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+    try:
+        el.click()
+    except:
+        driver.execute_script("arguments[0].click();", el)
     steps += 1
+    elapsed = round(time.time() - start_time, 1) if start_time else 0
+    print(f"  Step {steps:2d} | {elapsed:6.1f}s | {label}")
+    time.sleep(1)
 
-def type_text(el, text):
-    global steps
-    el.send_keys(text)
-    steps += 1
+def dismiss_popups():
+    """Close any visible modal/overlay."""
+    close_xpaths = [
+        "//span[@data-cy='closeModal']",
+        "//*[contains(@class,'modal')]//span[text()='×']",
+        "//button[contains(@class,'close')]",
+        "//div[contains(@class,'modalContent')]//span[contains(@class,'close')]",
+        "//*[@aria-label='Close']",
+    ]
+    for xp in close_xpaths:
+        try:
+            btn = driver.find_element(By.XPATH, xp)
+            if btn.is_displayed():
+                driver.execute_script("arguments[0].click();", btn)
+                global steps
+                steps += 1
+                print(f"  Step {steps:2d} |    --- | Closed pop-up")
+                time.sleep(1)
+                return True
+        except NoSuchElementException:
+            pass
+    return False
 
-start_time = time.time()
-
+print("\n── MakeMyTrip Web Automation ──")
 driver.get("https://www.makemytrip.com/")
-time.sleep(5)
+start_time = time.time()
+time.sleep(3)
 
-# Close popup
-wait = WebDriverWait(driver, 15)
+dismiss_popups()
 
-# Wait for page to load and click somewhere safe
-wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-driver.execute_script("document.body.click();")
+try:
+    click("//li[@data-cy='oneWay']", "Click One Way")
+except TimeoutException:
+    print("  (One Way already selected)")
 
-# FROM
-click(driver.find_element(By.ID, "fromCity"))
-input_box = driver.find_element(By.XPATH, "//input[@placeholder='From']")
-type_text(input_box, "Hyderabad")
+dismiss_popups()
+from_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@id='fromCity']")))
+from_field.clear()
+from_field.send_keys("Hyderabad")
+steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Type 'Hyderabad' in From")
+time.sleep(1.5)
+
+click("//li[contains(.,'Hyderabad') and contains(.,'HYD')]", "Select Hyderabad (HYD)")
+
+to_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@id='toCity']")))
+to_field.clear()
+to_field.send_keys("Delhi")
+steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Type 'Delhi' in To")
+time.sleep(1.5)
+
+click("//li[contains(.,'Delhi') and contains(.,'DEL')]", "Select Delhi (DEL)")
+
+click("//div[@id='departure']", "Open departure date picker")
+
+for _ in range(8):
+    try:
+        driver.find_element(By.XPATH, "//*[contains(text(),'June') and contains(text(),'2026')]")
+        break
+    except NoSuchElementException:
+        click("//span[contains(@class,'next')] | //button[contains(@aria-label,'Next')]", "Next month")
+
+click(
+    "//div[@aria-label='Mon Jun 15 2026'] | //p[@aria-label='Mon Jun 15 2026']",
+    "Select 15 June 2026"
+)
+
+dismiss_popups()
+click(
+    "//a[contains(@class,'search_btn')] | //button[contains(text(),'Search')]",
+    "Click Search"
+)
+
+print("\n  Waiting for results...")
+try:
+    wait.until(EC.presence_of_element_located((By.XPATH,
+        "//div[contains(@class,'listingCard')] | //div[contains(@class,'flightItem')]"
+    )))
+    steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Results loaded")
+except TimeoutException:
+    print("  WARNING: Results page slow to load")
+
 time.sleep(2)
-input_box.send_keys(Keys.ENTER)
+dismiss_popups()
 
-# TO
-click(driver.find_element(By.ID, "toCity"))
-input_box = driver.find_element(By.XPATH, "//input[@placeholder='To']")
-type_text(input_box, "Delhi")
+click(
+    "//span[contains(text(),'Price')] | //div[contains(@class,'sort')]//span[contains(.,'Price')]",
+    "Sort by Price"
+)
 time.sleep(2)
-input_box.send_keys(Keys.ENTER)
 
-# DATE
-click(driver.find_element(By.XPATH, "//div[@aria-label='Sun Jun 15 2026']"))
+first_flight = wait.until(EC.element_to_be_clickable((By.XPATH,
+    "(//div[contains(@class,'listingCard')])[1] | (//div[contains(@class,'flightItem')])[1]"
+)))
+try:
+    fare = first_flight.find_element(By.XPATH, ".//*[contains(@class,'price')]").text
+except:
+    fare = "N/A"
 
-# SEARCH
-click(driver.find_element(By.XPATH, "//a[text()='Search']"))
-time.sleep(10)
+driver.execute_script("arguments[0].click();", first_flight)
+steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Select cheapest flight (fare: {fare})")
+time.sleep(2)
 
-# SORT BY PRICE
-click(driver.find_element(By.XPATH, "//span[text()='Price']"))
-time.sleep(5)
+for label in ["Book Now", "Continue", "Continue"]:
+    try:
+        btn = WebDriverWait(driver, 6).until(EC.element_to_be_clickable((By.XPATH,
+            f"//button[contains(text(),'{label}')] | //a[contains(text(),'{label}')]"
+        )))
+        if any(kw in driver.current_url.lower() for kw in ["payment", "pay"]):
+            print(f"  ✓ Reached payment boundary — stopping")
+            break
+        driver.execute_script("arguments[0].click();", btn)
+        steps += 1; print(f"  Step {steps:2d} | {round(time.time()-start_time,1):6.1f}s | Click '{label}'")
+        time.sleep(2)
+    except TimeoutException:
+        break
 
-# SELECT FIRST FLIGHT
-click(driver.find_element(By.XPATH, "(//button[contains(text(),'Select')])[1]"))
+total_time = round(time.time() - start_time, 1)
+print(f"\n{'─'*45}")
+print(f"  Platform  : MakeMyTrip (Web)")
+print(f"  Steps     : {steps}")
+print(f"  Time      : {total_time}s ({round(total_time/60,1)} min)")
+print(f"  Cheapest  : {fare}")
+print(f"{'─'*45}\n")
 
-end_time = time.time()
-
-print("Steps:", steps)
-print("Time:", end_time - start_time)
-
+input("Press Enter to close browser...")
 driver.quit()
