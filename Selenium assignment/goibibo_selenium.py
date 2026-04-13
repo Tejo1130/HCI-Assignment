@@ -12,7 +12,6 @@ from selenium.common.exceptions import (
     ElementClickInterceptedException,
 )
 
-# ── Logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -20,7 +19,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("GOIBIBO")
 
-# ── Measurement counters ──────────────────────────────────────────────────────
 step_count = 0
 interruptions = []
 
@@ -35,8 +33,6 @@ def note_interruption(desc: str):
     interruptions.append(desc)
     log.warning(f"[INTERRUPTION] {desc}")
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 def wait_and_click(driver, wait, locator, label="element", timeout=15):
     elem = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable(locator))
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", elem)
@@ -81,8 +77,6 @@ def type_in_field(driver, wait, locator, text, label):
     field.send_keys(text)
     time.sleep(1)
 
-
-# ── Main automation ───────────────────────────────────────────────────────────
 def run():
     global step_count, interruptions
     step_count = 0
@@ -91,22 +85,17 @@ def run():
     options = Options()
     options.add_argument("--start-maximized")
     options.add_argument("--disable-notifications")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-    # options.add_argument("--headless=new")  # Uncomment for headless mode
 
     driver = webdriver.Chrome(options=options)
     wait = WebDriverWait(driver, 20)
 
     try:
-        # ── 1. Open Goibibo homepage ──────────────────────────────────────────
         driver.get("https://www.goibibo.com/")
         homepage_ready = time.time()
         log.info("Homepage loaded. Timer started.")
         time.sleep(2)
         dismiss_popup(driver)
 
-        # ── 2. Click Flights in the top nav (if not already selected) ─────────
         try:
             flights_nav = wait.until(
                 EC.element_to_be_clickable(
@@ -121,7 +110,7 @@ def run():
         except TimeoutException:
             step("Flights section already active")
 
-        # ── 3. Select One-Way trip ────────────────────────────────────────────
+
         try:
             one_way = wait.until(
                 EC.element_to_be_clickable(
@@ -136,7 +125,6 @@ def run():
         except TimeoutException:
             note_interruption("Could not find explicit One-Way option; may be default")
 
-        # ── 4. From city: Hyderabad ───────────────────────────────────────────
         from_locator = (
             By.XPATH,
             "//input[@placeholder='From' or @id='gosuggest_input_from' or contains(@class,'fromCity')]"
@@ -144,7 +132,7 @@ def run():
         )
         type_in_field(driver, wait, from_locator, "Hyderabad", "From city")
 
-        # Select Hyderabad from dropdown
+        
         wait_and_click(
             driver, wait,
             (By.XPATH,
@@ -154,13 +142,13 @@ def run():
             "Hyderabad (HYD) suggestion",
         )
 
-        # ── 5. To city: Delhi ─────────────────────────────────────────────────
+        
         to_locator = (
             By.XPATH,
             "//input[@placeholder='To' or @id='gosuggest_input_to' or contains(@class,'toCity')]"
             " | //div[contains(@class,'toCity')]//input"
         )
-        # Sometimes Goibibo auto-focuses the To field after From selection
+        
         try:
             to_field = WebDriverWait(driver, 4).until(EC.element_to_be_clickable(to_locator))
         except TimeoutException:
@@ -181,7 +169,7 @@ def run():
             "Delhi (DEL) suggestion",
         )
 
-        # ── 6. Departure date: 15 June 2026 ───────────────────────────────────
+        
         date_locator = (
             By.XPATH,
             "//input[@placeholder='Departure' or contains(@class,'depart') or @id='departure_date']"
@@ -189,7 +177,7 @@ def run():
         )
         wait_and_click(driver, wait, date_locator, "Departure date field")
 
-        # Navigate calendar to June 2026
+        
         for _ in range(15):
             try:
                 caption = driver.find_element(
@@ -211,7 +199,7 @@ def run():
             except NoSuchElementException:
                 break
 
-        # Click 15
+        
         wait_and_click(
             driver, wait,
             (By.XPATH,
@@ -223,7 +211,7 @@ def run():
         )
         time.sleep(1)
 
-        # ── 7. Travellers / class – confirm if picker is open ─────────────────
+        
         try:
             done_btn = WebDriverWait(driver, 3).until(
                 EC.element_to_be_clickable(
@@ -233,9 +221,9 @@ def run():
             done_btn.click()
             step("Confirmed traveller count (Done)")
         except TimeoutException:
-            pass  # Default 1 adult economy is pre-set
+            pass  
 
-        # ── 8. Search ─────────────────────────────────────────────────────────
+        
         wait_and_click(
             driver, wait,
             (By.XPATH,
@@ -247,7 +235,7 @@ def run():
         dismiss_popup(driver)
         log.info("Search results page loaded.")
 
-        # ── 9. Sort by Price ──────────────────────────────────────────────────
+        
         try:
             price_sort = wait.until(
                 EC.element_to_be_clickable(
@@ -263,7 +251,7 @@ def run():
         except TimeoutException:
             note_interruption("Sort by Price button not found – results may already be sorted by price by default")
 
-        # ── 10. Select first flight ───────────────────────────────────────────
+        
         first_result = wait.until(
             EC.element_to_be_clickable(
                 (By.XPATH,
@@ -276,7 +264,7 @@ def run():
         time.sleep(2)
         dismiss_popup(driver)
 
-        # ── 11. Book Now ──────────────────────────────────────────────────────
+        
         try:
             book_btn = wait.until(
                 EC.element_to_be_clickable(
@@ -291,10 +279,10 @@ def run():
         except TimeoutException:
             note_interruption("No Book Now button found after expanding flight card")
 
-        # ── 12. Handle login / sign-in redirect ──────────────────────────────
+        
         dismiss_popup(driver)
 
-        # ── 13. Continue through passenger / itinerary pages ─────────────────
+        
         for attempt in range(5):
             current_url = driver.current_url
             if "payment" in current_url.lower() or "pay" in current_url.lower():
@@ -316,11 +304,11 @@ def run():
                 log.info("No more Continue buttons – likely on review or payment page.")
                 break
 
-        # ── Stop timer ────────────────────────────────────────────────────────
+        
         end_time = time.time()
         total_seconds = round(end_time - homepage_ready, 2)
 
-        # ── Report ─────────────────────────────────────────────────────────────
+        
         log.info("=" * 60)
         log.info("GOIBIBO AUTOMATION COMPLETE")
         log.info(f"  Final URL     : {driver.current_url}")

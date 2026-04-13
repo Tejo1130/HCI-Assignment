@@ -12,7 +12,7 @@ from selenium.common.exceptions import (
     ElementClickInterceptedException,
 )
 
-# ── Logging setup ────────────────────────────────────────────────────────────
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("MMT")
 
-# ── Measurement counters ──────────────────────────────────────────────────────
+
 step_count = 0
 interruptions = []
 
@@ -37,7 +37,7 @@ def note_interruption(desc: str):
     log.warning(f"[INTERRUPTION] {desc}")
 
 
-# ── Helper utilities ──────────────────────────────────────────────────────────
+
 def wait_and_click(driver, wait, locator, label="element", timeout=15):
     """Wait for an element, scroll into view, and click it."""
     elem = wait.until(EC.element_to_be_clickable(locator))
@@ -73,34 +73,33 @@ def dismiss_popup(driver, wait):
     return False
 
 
-# ── Main automation ───────────────────────────────────────────────────────────
+
 def run():
     global step_count, interruptions
     step_count = 0
     interruptions = []
 
-    # Chrome options – run headed so pop-ups behave naturally
+    
     options = Options()
     options.add_argument("--start-maximized")
     options.add_argument("--disable-notifications")
-    # Uncomment the next line to run headless (pop-up handling may differ):
-    # options.add_argument("--headless=new")
+    
 
     driver = webdriver.Chrome(options=options)
     wait = WebDriverWait(driver, 10)
 
     try:
-        # ── 1. Open homepage ──────────────────────────────────────────────────
+       
         driver.get("https://www.makemytrip.com/")
         # Start timer AFTER page is ready
         homepage_ready = time.time()
         log.info("Homepage loaded. Timer started.")
-        time.sleep(2)  # allow JS to settle
+        time.sleep(2)  
 
-        # Dismiss any immediate login modal
+
         dismiss_popup(driver, WebDriverWait(driver, 5))
 
-        # ── 2. Ensure "Flights" tab is active ────────────────────────────────
+        
         try:
             flights_tab = wait.until(
                 EC.element_to_be_clickable(
@@ -112,7 +111,7 @@ def run():
         except TimeoutException:
             step("Flights tab already active (no click needed)")
 
-        # ── 3. Select One-Way ────────────────────────────────────────────────
+       
         try:
             one_way = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located(
@@ -128,27 +127,26 @@ def run():
         except TimeoutException:
             step("One Way already selected / not required")
 
-        # ── 4. Set Departure city ────────────────────────────────────────────
+        
         from_field = wait.until(EC.element_to_be_clickable((By.ID, "fromCity")))
         from_field.click()
         step("Clicked From field")
 
-        time.sleep(2)  # IMPORTANT: wait for input to appear
+        time.sleep(2) 
 
-        # NOW target actual input box (NOT fromCity)
         from_input = wait.until( EC.presence_of_element_located((By.XPATH, "//input[@placeholder='From'] | //input[@type='text']")))
 
         from_input.send_keys("Hyderabad")
         step("Typed Hyderabad")
 
-        # Select dropdown
+    
         wait_and_click(
             driver, wait,
             (By.XPATH, "//li[contains(.,'Hyderabad') and contains(.,'HYD')]"),
             "Hyderabad suggestion",
         )
 
-       # ── 5. Set Destination city ──────────────────────────────────────────
+       
         to_field = wait.until(
             EC.element_to_be_clickable((By.ID, "toCity"))
         )
@@ -170,16 +168,15 @@ def run():
             "Delhi suggestion",
         )
 
-        # ── 6. Set departure date (15 June 2026) ─────────────────────────────
+        
         date_field = wait.until(
             EC.element_to_be_clickable((By.ID, "departure"))
         )
         date_field.click()
         step("Clicked departure date field")
 
-        # Navigate calendar to June 2026
-        # Current displayed month may vary; keep clicking Next until June 2026
-        for _ in range(15):  # safety cap
+        
+        for _ in range(15):  
             try:
                 month_year = driver.find_element(
                     By.XPATH,
@@ -197,7 +194,6 @@ def run():
             except NoSuchElementException:
                 break
 
-        # Click day 15
         wait_and_click(
             driver, wait,
             (By.XPATH,
@@ -207,7 +203,6 @@ def run():
             "June 15 on calendar",
         )
 
-        # ── 7. Passengers – 1 adult is default; confirm if picker appears ────
         try:
             pax_done = WebDriverWait(driver, 3).until(
                 EC.element_to_be_clickable(
@@ -217,9 +212,8 @@ def run():
             pax_done.click()
             step("Confirmed passenger count (Done)")
         except TimeoutException:
-            pass  # Default 1 adult, no action required
+            pass 
 
-        # ── 8. Search ────────────────────────────────────────────────────────
         wait_and_click(
             driver, wait,
             (By.XPATH,
@@ -228,13 +222,11 @@ def run():
             "Search button",
         )
 
-        # Wait for results page
         wait.until(EC.url_contains("flight/search"))
         time.sleep(3)
         dismiss_popup(driver, wait)
         log.info("Search results page loaded.")
 
-        # ── 9. Sort by Price (Cheapest) ──────────────────────────────────────
         try:
             sort_price = wait.until(
                 EC.element_to_be_clickable(
@@ -250,7 +242,6 @@ def run():
         except TimeoutException:
             note_interruption("Could not find explicit 'Sort by Price' button – may already be default")
 
-        # ── 10. Select first flight ──────────────────────────────────────────
         first_flight = wait.until(
             EC.element_to_be_clickable(
                 (By.XPATH,
@@ -263,7 +254,6 @@ def run():
         time.sleep(2)
         dismiss_popup(driver, wait)
 
-        # ── 11. Book / Select button within expanded card ────────────────────
         try:
             book_btn = wait.until(
                 EC.element_to_be_clickable(
@@ -278,10 +268,8 @@ def run():
         except TimeoutException:
             note_interruption("No explicit Book Now button found after expanding card")
 
-        # ── 12. Handle any login prompts ─────────────────────────────────────
         dismiss_popup(driver, wait)
 
-        # ── 13. Continue through itinerary / traveller pages until payment ───
         for attempt in range(5):
             current_url = driver.current_url
             if "payment" in current_url.lower() or "pay" in current_url.lower():
@@ -302,11 +290,10 @@ def run():
                 log.info("No more Continue buttons found – likely on review or payment page.")
                 break
 
-        # ── Stop timer ───────────────────────────────────────────────────────
         end_time = time.time()
         total_seconds = round(end_time - homepage_ready, 2)
 
-        # ── Report ────────────────────────────────────────────────────────────
+        
         log.info("=" * 60)
         log.info("MAKEMYTRIP AUTOMATION COMPLETE")
         log.info(f"  Final URL     : {driver.current_url}")
